@@ -20,7 +20,7 @@ from stable_baselines3.common.type_aliases import Schedule
 
 # CAP the standard deviation of the actor
 LOG_STD_MAX = 2
-LOG_STD_MIN = -20
+LOG_STD_MIN = -10
 
 
 class Actor(BasePolicy):
