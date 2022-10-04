@@ -579,12 +579,12 @@ class DictReplayBuffer(ReplayBuffer):
         for key in self.observations.keys():
             # Reshape needed when using multiple envs with discrete observations
             # as numpy cannot broadcast (n_discrete,) to (n_discrete, 1)
-            if isinstance(self.observation_space.spaces[key], spaces.Discrete):
+            if isinstance(self.observation_space.spaces[key], spaces.Discrete) or len(obs[key].shape) == 1:
                 obs[key] = obs[key].reshape((self.n_envs,) + self.obs_shape[key])
             self.observations[key][self.pos] = np.array(obs[key])
 
         for key in self.next_observations.keys():
-            if isinstance(self.observation_space.spaces[key], spaces.Discrete):
+            if isinstance(self.observation_space.spaces[key], spaces.Discrete) or len(next_obs[key].shape) == 1:
                 next_obs[key] = next_obs[key].reshape((self.n_envs,) + self.obs_shape[key])
             self.next_observations[key][self.pos] = np.array(next_obs[key]).copy()
 
