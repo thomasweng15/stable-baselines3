@@ -209,7 +209,9 @@ class SAC(OffPolicyAlgorithm):
         actor_losses, critic_losses = [], []
         log_probs, min_qf_pis = [], []
 
-        for gradient_step in range(gradient_steps):
+        for _ in range(gradient_steps):
+            
+            self._n_updates += 1
             # Sample replay buffer
             replay_data = self.replay_buffer.sample(batch_size, env=self._vec_normalize_env)
 
@@ -266,7 +268,7 @@ class SAC(OffPolicyAlgorithm):
             self.critic.optimizer.step()
 
             # Compute actor loss
-            if (self._n_updates + gradient_step) % self.actor_update_interval == 0:
+            if self._n_updates % self.actor_update_interval == 0:
                 # Alternative: actor_loss = th.mean(log_prob - qf1_pi)
                 # Min over all critic networks
                 q_values_pi = th.cat(self.critic(replay_data.observations, actions_pi), dim=1)
@@ -282,16 +284,15 @@ class SAC(OffPolicyAlgorithm):
                 self.actor.optimizer.step()
 
             # Update target networks
-            if (self._n_updates + gradient_step) % self.target_update_interval == 0:
+            if self._n_updates % self.target_update_interval == 0:
                 polyak_update(self.critic.parameters(), self.critic_target.parameters(), self.tau)
                 # Copy running stats, see GH issue #996
                 polyak_update(self.batch_norm_stats, self.batch_norm_stats_target, 1.0)
 
-        self._n_updates += gradient_steps
-
         self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
         self.logger.record("train/ent_coef", np.mean(ent_coefs))
-        self.logger.record("train/actor_loss", np.mean(actor_losses))
+        if len(actor_losses) > 0:
+            self.logger.record("train/actor_loss", np.mean(actor_losses))
         self.logger.record("train/log_prob", np.mean(log_probs))
         self.logger.record("train/min_qf_pis", np.mean(min_qf_pis))
         self.logger.record("train/critic_loss", np.mean(critic_losses))

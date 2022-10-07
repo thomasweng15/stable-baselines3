@@ -86,7 +86,8 @@ class TD3(OffPolicyAlgorithm):
         replay_buffer_class: Optional[Type[ReplayBuffer]] = None,
         replay_buffer_kwargs: Optional[Dict[str, Any]] = None,
         optimize_memory_usage: bool = False,
-        policy_delay: int = 2,
+        actor_update_interval: int = 1,
+        target_update_interval: int = 1,
         target_policy_noise: float = 0.2,
         target_noise_clip: float = 0.5,
         tensorboard_log: Optional[str] = None,
@@ -124,7 +125,8 @@ class TD3(OffPolicyAlgorithm):
             support_multi_env=True,
         )
 
-        self.policy_delay = policy_delay
+        self.actor_update_interval = actor_update_interval
+        self.target_update_interval = target_update_interval
         self.target_noise_clip = target_noise_clip
         self.target_policy_noise = target_policy_noise
 
@@ -185,7 +187,7 @@ class TD3(OffPolicyAlgorithm):
             self.critic.optimizer.step()
 
             # Delayed policy updates
-            if self._n_updates % self.policy_delay == 0:
+            if self._n_updates % self.actor_update_interval == 0:
                 # Compute actor loss
                 actor_loss = -self.critic.q1_forward(replay_data.observations, self.actor(replay_data.observations)).mean()
                 actor_losses.append(actor_loss.item())
@@ -195,6 +197,8 @@ class TD3(OffPolicyAlgorithm):
                 actor_loss.backward()
                 self.actor.optimizer.step()
 
+            # Update target networks
+            if self._n_updates % self.target_update_interval == 0:
                 polyak_update(self.critic.parameters(), self.critic_target.parameters(), self.tau)
                 polyak_update(self.actor.parameters(), self.actor_target.parameters(), self.tau)
                 # Copy running stats, see GH issue #996
