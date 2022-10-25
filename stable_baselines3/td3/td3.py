@@ -100,6 +100,7 @@ class TD3(OffPolicyAlgorithm):
         clip_critic_grad_norm: Optional[float] = None,
         clamp_critic_min: Optional[float] = None,
         clamp_critic_max: Optional[float] = None,
+        mean_q: bool = False,
     ):
 
         super().__init__(
@@ -135,6 +136,7 @@ class TD3(OffPolicyAlgorithm):
         self.clip_critic_grad_norm = clip_critic_grad_norm
         self.clamp_critic_min = clamp_critic_min
         self.clamp_critic_max = clamp_critic_max
+        self.mean_q = mean_q
 
         if _init_setup_model:
             self._setup_model()
@@ -177,7 +179,10 @@ class TD3(OffPolicyAlgorithm):
 
                 # Compute the next Q-values: min over all critics targets
                 next_q_values = th.cat(self.critic_target(replay_data.next_observations, next_actions), dim=1)
-                next_q_values, _ = th.min(next_q_values, dim=1, keepdim=True)
+                if self.mean_q:
+                    next_q_values = th.mean(next_q_values, dim=1, keepdim=True)
+                else:
+                    next_q_values, _ = th.min(next_q_values, dim=1, keepdim=True)
                 target_q_values = replay_data.rewards + (1 - replay_data.dones) * self.gamma * next_q_values
 
                 # Bound critic value
