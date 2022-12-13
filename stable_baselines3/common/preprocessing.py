@@ -124,7 +124,8 @@ def preprocess_obs(
         # Do not modify by reference the original observation
         preprocessed_obs = {}
         for key, _obs in obs.items():
-            preprocessed_obs[key] = preprocess_obs(_obs, observation_space[key], normalize_images=normalize_images)
+            if key in list(observation_space.keys()):
+                preprocessed_obs[key] = preprocess_obs(_obs, observation_space[key], normalize_images=normalize_images)
         return preprocessed_obs
 
     else:
