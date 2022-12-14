@@ -730,7 +730,7 @@ class DictRolloutBuffer(RolloutBuffer):
             obs_ = np.array(obs[key]).copy()
             # Reshape needed when using multiple envs with discrete observations
             # as numpy cannot broadcast (n_discrete,) to (n_discrete, 1)
-            if isinstance(self.observation_space.spaces[key], spaces.Discrete):
+            if isinstance(self.observation_space.spaces[key], spaces.Discrete) or len(obs_.shape) == 1:
                 obs_ = obs_.reshape((self.n_envs,) + self.obs_shape[key])
             self.observations[key][self.pos] = obs_
 
