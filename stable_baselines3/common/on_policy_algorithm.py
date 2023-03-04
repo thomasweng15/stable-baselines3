@@ -185,7 +185,7 @@ class OnPolicyAlgorithm(BaseAlgorithm):
             if callback.on_step() is False:
                 return False
 
-            self._update_info_buffer(infos)
+            self._update_info_buffer(infos, dones)
             n_steps += 1
 
             if isinstance(self.action_space, gym.spaces.Discrete):
@@ -267,6 +267,8 @@ class OnPolicyAlgorithm(BaseAlgorithm):
                 self.logger.record("time/fps", fps)
                 self.logger.record("time/time_elapsed", int(time_elapsed), exclude="tensorboard")
                 self.logger.record("time/total_timesteps", self.num_timesteps, exclude="tensorboard")
+                if len(self.ep_success_buffer) > 0:
+                    self.logger.record("rollout/success_rate", safe_mean(self.ep_success_buffer))
                 self.logger.dump(step=self.num_timesteps)
 
             self.train()

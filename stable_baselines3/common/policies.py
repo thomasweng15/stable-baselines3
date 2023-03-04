@@ -226,14 +226,17 @@ class BaseModel(nn.Module):
             # need to copy the dict as the dict in VecFrameStack will become a torch tensor
             observation = copy.deepcopy(observation)
             for key, obs in observation.items():
-                obs_space = self.observation_space.spaces[key]
-                if is_image_space(obs_space):
-                    obs_ = maybe_transpose(obs, obs_space)
-                else:
-                    obs_ = np.array(obs)
-                vectorized_env = vectorized_env or is_vectorized_observation(obs_, obs_space)
-                # Add batch dimension if needed
-                observation[key] = obs_.reshape((-1,) + self.observation_space[key].shape)
+                if key in self.observation_space.spaces.keys():
+                    obs_space = self.observation_space.spaces[key]
+                    if is_image_space(obs_space):
+                        obs_ = maybe_transpose(obs, obs_space)
+                    else:
+                        obs_ = np.array(obs)
+                    if obs_.shape == ():
+                        obs_ = obs_.reshape(-1)
+                    vectorized_env = vectorized_env or is_vectorized_observation(obs_, obs_space)
+                    # Add batch dimension if needed
+                    observation[key] = obs_.reshape((-1,) + self.observation_space[key].shape)
 
         elif is_image_space(self.observation_space):
             # Handle the different cases for images
