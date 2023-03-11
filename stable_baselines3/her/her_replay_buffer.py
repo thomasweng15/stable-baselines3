@@ -299,10 +299,7 @@ class HerReplayBuffer(DictReplayBuffer):
             infos,
             # we use the method of the first environment assuming that all environments are identical.
             indices=[0],
-        )
-        #TODO: add dones
-        # rewards = np.array([rewards])
-        
+        )        
         # Allowing specifying dones (assuming compute_rewards returns dones as well)
         if len(rewards[0]) == 2:
             (rewards, dones) = rewards[0]
