@@ -300,8 +300,20 @@ class HerReplayBuffer(DictReplayBuffer):
             # we use the method of the first environment assuming that all environments are identical.
             indices=[0],
         )
+        #TODO: add dones
         # rewards = np.array([rewards])
-        rewards = rewards[0][0].astype(np.float32)  # env_method returns a list containing one element
+        
+        # Allowing specifying dones (assuming compute_rewards returns dones as well)
+        if len(rewards[0]) == 2:
+            (rewards, dones) = rewards[0]
+            rewards = rewards.astype(np.float32)
+        
+        # By default dones are from the sampled transitions
+        else:
+            rewards = rewards[0][0].astype(np.float32)  # env_method returns a list containing one element
+            dones = self.dones[batch_inds, env_indices] * (1 - self.timeouts[batch_inds, env_indices]) # Only use dones that are not due to timeouts
+            # deactivated by default (timeouts is initialized as an array of False)
+
         obs = self._normalize_obs(obs, env)
         next_obs = self._normalize_obs(next_obs, env)
 
@@ -313,11 +325,7 @@ class HerReplayBuffer(DictReplayBuffer):
             observations=observations,
             actions=self.to_torch(self.actions[batch_inds, env_indices]),
             next_observations=next_observations,
-            # Only use dones that are not due to timeouts
-            # deactivated by default (timeouts is initialized as an array of False)
-            dones=self.to_torch(self.dones[batch_inds, env_indices] * (1 - self.timeouts[batch_inds, env_indices])).reshape(
-                -1, 1
-            ),
+            dones=self.to_torch(dones).reshape(-1, 1),
             rewards=self.to_torch(self._normalize_reward(rewards.reshape(-1, 1), env)),
         )
 
