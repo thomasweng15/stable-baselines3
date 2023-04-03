@@ -559,6 +559,11 @@ class OffPolicyAlgorithm(BaseAlgorithm):
             # Rescale and perform action
             new_obs, rewards, dones, infos = env.step(actions)
 
+            # Overwrite buffer action with actual action
+            for i, info in enumerate(infos):
+                if 'action_param' in info:
+                    buffer_actions[i] = info['action_param']
+
             self.num_timesteps += env.num_envs
             num_collected_steps += 1
 
