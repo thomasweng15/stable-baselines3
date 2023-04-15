@@ -288,14 +288,16 @@ class HerReplayBuffer(DictReplayBuffer):
             "compute_reward",
             # here we use the new desired goal
             # obs[self.desired_goal_key],
-            obs, # We use obs directly
+            # obs, # We use obs directly
             # the new state depends on the previous state and action
             # s_{t+1} = f(s_t, a_t)
             # so the next achieved_goal depends also on the previous state and action
             # because we are in a GoalEnv:
             # r_t = reward(s_t, a_t) = reward(next_achieved_goal, desired_goal)
             # therefore we have to use next_obs[self.achieved_goal_key] and not obs[self.achieved_goal_key]
-            next_obs[self.achieved_goal_key],
+            # 
+            next_obs[self.achieved_goal_key], # get achieved goal from next obs dict
+            obs[self.desired_goal_key], # desired goal is second argument
             infos,
             # we use the method of the first environment assuming that all environments are identical.
             indices=[0],
