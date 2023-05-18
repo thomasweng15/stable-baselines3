@@ -4,6 +4,7 @@ import gym
 import numpy as np
 import torch as th
 from torch.nn import functional as F
+from itertools import chain
 
 from stable_baselines3.common.buffers import ReplayBuffer
 from stable_baselines3.common.noise import ActionNoise
@@ -101,6 +102,7 @@ class TD3(OffPolicyAlgorithm):
         clamp_critic_min: Optional[float] = None,
         clamp_critic_max: Optional[float] = None,
         mean_q: bool = False,
+        ckpt_dir = None,
     ):
 
         super().__init__(
@@ -137,7 +139,9 @@ class TD3(OffPolicyAlgorithm):
         self.clamp_critic_min = clamp_critic_min
         self.clamp_critic_max = clamp_critic_max
         self.mean_q = mean_q
-
+        self.min_val_corr_loss = 1e7
+        self.ckpt_save_dir = ckpt_dir
+ 
         if _init_setup_model:
             self._setup_model()
 
@@ -174,6 +178,21 @@ class TD3(OffPolicyAlgorithm):
     def get_actor_loss(self, replay_data):
         actor_loss = -self.critic.q1_forward(replay_data.observations, self.actor(replay_data.observations)).mean()
         return actor_loss
+    
+    def get_corr_loss(self,replay_data, batch_size):
+        obs = replay_data.observations        
+        obs_points = obs['object_pcd_points'][:batch_size, :,:]
+        goal_points = obs['goal_pcd_points'][:batch_size, :,:]
+        device = next(self.actor.features_extractor.corr_model.parameters()).device
+
+        inp = [obs_points, goal_points]
+
+        pred_flow, _ =  self.actor.features_extractor.corr_model(inp)
+        pred_flow = pred_flow.squeeze() 
+        gt_flow = (inp[1] - inp[0]).squeeze() # 1 x N x 3
+        mse_error = F.mse_loss(pred_flow, gt_flow)
+        return mse_error
+
 
     def train(self, gradient_steps: int, batch_size: int = 100) -> None:
         # Switch to train mode (this affects batch norm / dropout)
@@ -183,6 +202,7 @@ class TD3(OffPolicyAlgorithm):
         self._update_learning_rate([self.actor.optimizer, self.critic.optimizer])
 
         actor_losses, critic_losses, critic_grad_norms, q_targets = [], [], [], []
+        corr_losses = []
 
         for _ in range(gradient_steps):
 
@@ -200,6 +220,8 @@ class TD3(OffPolicyAlgorithm):
                 if self.clamp_critic_max is not None:
                     target_q_values = target_q_values.clamp(max=self.clamp_critic_max)
                 q_targets.append(target_q_values.mean().item())
+
+            # replay_data.observations['flow'].requires_grad = True
 
             # Get current Q-values estimates for each critic network
             current_q_values = self.critic(replay_data.observations, replay_data.actions)
@@ -219,6 +241,21 @@ class TD3(OffPolicyAlgorithm):
             
             self.critic.optimizer.step()
 
+
+            #Compute Correspondence Loss
+            if self.actor.features_extractor.finetune_corr_model:
+                self.actor.features_extractor.corr_model.train()
+                corr_bs = self.actor.features_extractor.corr_bs
+                corr_loss = self.get_corr_loss(replay_data=replay_data, batch_size=corr_bs)
+                self.actor.features_extractor.corr_model_optimizer.zero_grad()
+                corr_loss.backward()
+                self.actor.features_extractor.corr_model_optimizer.step()
+                corr_losses.append(corr_loss.item())
+                self.actor.features_extractor.corr_model.eval()
+                
+                # validation step with k train / global steps / self._n_updates?
+            # visualize corr model output
+
             # Delayed policy updates
             if self._n_updates % self.actor_update_interval == 0:
                 # Compute actor loss
@@ -233,10 +270,32 @@ class TD3(OffPolicyAlgorithm):
             # Update target networks
             if self._n_updates % self.target_update_interval == 0:
                 polyak_update(self.critic.parameters(), self.critic_target.parameters(), self.tau)
-                polyak_update(self.actor.parameters(), self.actor_target.parameters(), self.tau)
+                polyak_update(chain(self.actor.features_extractor.backbone.parameters(), self.actor.mu.parameters()), self.actor_target.parameters(), self.tau)
+                # polyak_update(self.actor.parameters(), self.actor_target.parameters(), self.tau)
+                # polyak_update(self.actor.mu.parameters(), self.actor_target.mu.parameters(), self.tau)
+                # polyak_update(self.actor.features_extractor.parameters(), self.actor_target.features_extractor.parameters(), self.tau)
+                # polyak_update(chain(self.actor.features_extractor.parameters(), self.actor.mu.parameters()), self.actor_target.parameters(), self.tau)
                 # Copy running stats, see GH issue #996
                 polyak_update(self.critic_batch_norm_stats, self.critic_batch_norm_stats_target, 1.0)
                 polyak_update(self.actor_batch_norm_stats, self.actor_batch_norm_stats_target, 1.0)
+
+        # validation step with k train / global steps / self._n_updates?
+        # visualize corr model output
+        #after all gradient steps, validate?
+
+        corr_val_losses = []
+        if self.actor.features_extractor.finetune_corr_model:
+
+            self.actor.features_extractor.corr_model.eval()
+            corr_bs = self.actor.features_extractor.corr_bs
+            #pass the validation set not replay data TODO
+            corr_loss = self.get_corr_loss(replay_data=replay_data, batch_size=corr_bs)
+            corr_val_losses.append(corr_loss.item())
+
+            if self.min_val_corr_loss > np.mean(corr_val_losses):
+                self.min_val_corr_loss = np.mean(corr_val_losses)
+                th.save(self.actor.features_extractor.corr_model, self.ckpt_save_dir/"best_finetuned_val.pth")
+
 
         self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
         if len(actor_losses) > 0:
@@ -244,6 +303,9 @@ class TD3(OffPolicyAlgorithm):
         self.logger.record("train/critic_loss", np.mean(critic_losses))
         self.logger.record("train/critic_grad_norms", np.mean(critic_grad_norms))
         self.logger.record("train/q_targets", np.mean(q_targets))
+        if self.actor.features_extractor.finetune_corr_model:
+            self.logger.record("train/corr_loss", np.mean(corr_losses))
+            self.logger.record("val/corr_loss", np.mean(corr_val_losses))
 
     def learn(
         self: TD3Self,
