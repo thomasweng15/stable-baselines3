@@ -103,6 +103,7 @@ class TD3(OffPolicyAlgorithm):
         clamp_critic_max: Optional[float] = None,
         mean_q: bool = False,
         ckpt_dir = None,
+        val_corr_model_interval = None
     ):
 
         super().__init__(
@@ -141,6 +142,7 @@ class TD3(OffPolicyAlgorithm):
         self.mean_q = mean_q
         self.min_val_corr_loss = 1e7
         self.ckpt_save_dir = ckpt_dir
+        self.val_corr_model_interval = val_corr_model_interval
  
         if _init_setup_model:
             self._setup_model()
@@ -192,7 +194,12 @@ class TD3(OffPolicyAlgorithm):
         gt_flow = (inp[1] - inp[0]).squeeze() # 1 x N x 3
         mse_error = F.mse_loss(pred_flow, gt_flow)
         return mse_error
-
+    
+    def get_corr_loss_val(self, inp, gt_flow):
+        with th.no_grad():
+            pred_flow, _ =  self.actor.features_extractor.corr_model(inp)
+            mse_error = F.mse_loss(pred_flow, gt_flow)
+        return mse_error
 
     def train(self, gradient_steps: int, batch_size: int = 100) -> None:
         # Switch to train mode (this affects batch norm / dropout)
@@ -283,18 +290,27 @@ class TD3(OffPolicyAlgorithm):
         # visualize corr model output
         #after all gradient steps, validate?
 
-        corr_val_losses = []
         if self.actor.features_extractor.finetune_corr_model:
+            corr_val_losses = []
+            if self._n_updates % self.val_corr_model_interval== 0:
+                self.actor.features_extractor.corr_model.eval()
+                corr_bs = self.actor.features_extractor.corr_bs
+                #pass the validation set not replay data TODO
+                for idx, batch in enumerate(self.actor.features_extractor.val_dl):
+                    data = batch
+                    pc_after = data["pc_nobs"].cuda() 
+                    vis_pc_before = data["vis_pc_obs"].cuda() 
+                    vis_pc_after = data["vis_pc_nobs"].cuda() 
 
-            self.actor.features_extractor.corr_model.eval()
-            corr_bs = self.actor.features_extractor.corr_bs
-            #pass the validation set not replay data TODO
-            corr_loss = self.get_corr_loss(replay_data=replay_data, batch_size=corr_bs)
-            corr_val_losses.append(corr_loss.item())
+                    inp = [vis_pc_before, pc_after] 
+                    gt_flow = vis_pc_after - vis_pc_before 
 
-            if self.min_val_corr_loss > np.mean(corr_val_losses):
-                self.min_val_corr_loss = np.mean(corr_val_losses)
-                th.save(self.actor.features_extractor.corr_model, self.ckpt_save_dir/"best_finetuned_val.pth")
+                    corr_loss = self.get_corr_loss_val(inp, gt_flow)
+                    corr_val_losses.append(corr_loss.item())
+
+                if self.min_val_corr_loss > np.mean(corr_val_losses):
+                    self.min_val_corr_loss = np.mean(corr_val_losses)
+                    th.save(self.actor.features_extractor.corr_model, self.ckpt_save_dir/"best_finetuned_val.pth")
 
 
         self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
@@ -305,7 +321,8 @@ class TD3(OffPolicyAlgorithm):
         self.logger.record("train/q_targets", np.mean(q_targets))
         if self.actor.features_extractor.finetune_corr_model:
             self.logger.record("train/corr_loss", np.mean(corr_losses))
-            self.logger.record("val/corr_loss", np.mean(corr_val_losses))
+            if len(corr_val_losses)>0:
+                self.logger.record("val/corr_loss", np.mean(corr_val_losses))
 
     def learn(
         self: TD3Self,
