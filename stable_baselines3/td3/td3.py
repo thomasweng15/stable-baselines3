@@ -185,6 +185,9 @@ class TD3(OffPolicyAlgorithm):
         obs = replay_data.observations        
         obs_points = obs['object_pcd_points'][:batch_size, :,:]
         goal_points = obs['goal_pcd_points'][:batch_size, :,:]
+
+        obs_points = obs_points[:, :, [0,2,1]]
+        goal_points = goal_points[:, :, [0,2,1]]
         device = next(self.actor.features_extractor.corr_model.parameters()).device
 
         inp = [obs_points, goal_points]
@@ -250,7 +253,7 @@ class TD3(OffPolicyAlgorithm):
 
 
             #Compute Correspondence Loss
-            if self.actor.features_extractor.finetune_corr_model:
+            if self.actor.features_extractor.finetune_corr_model and self.actor.features_extractor.finetune_loss =='aux':
                 self.actor.features_extractor.corr_model.train()
                 corr_bs = self.actor.features_extractor.corr_bs
                 corr_loss = self.get_corr_loss(replay_data=replay_data, batch_size=corr_bs)
@@ -290,7 +293,7 @@ class TD3(OffPolicyAlgorithm):
         # visualize corr model output
         #after all gradient steps, validate?
 
-        if self.actor.features_extractor.finetune_corr_model:
+        if self.actor.features_extractor.finetune_corr_model and self.actor.features_extractor.finetune_loss =='aux':
             corr_val_losses = []
             if self._n_updates % self.val_corr_model_interval== 0:
                 self.actor.features_extractor.corr_model.eval()
@@ -319,7 +322,7 @@ class TD3(OffPolicyAlgorithm):
         self.logger.record("train/critic_loss", np.mean(critic_losses))
         self.logger.record("train/critic_grad_norms", np.mean(critic_grad_norms))
         self.logger.record("train/q_targets", np.mean(q_targets))
-        if self.actor.features_extractor.finetune_corr_model:
+        if self.actor.features_extractor.finetune_corr_model and self.actor.features_extractor.finetune_loss =='aux':
             self.logger.record("train/corr_loss", np.mean(corr_losses))
             if len(corr_val_losses)>0:
                 self.logger.record("val/corr_loss", np.mean(corr_val_losses))
