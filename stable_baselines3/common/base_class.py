@@ -731,6 +731,17 @@ class BaseAlgorithm(ABC):
 
         if "observation_space" not in data or "action_space" not in data:
             raise KeyError("The observation_space and action_space were not given, can't verify new environments")
+        
+
+        # Remove corr model information
+        keys_to_delete = []
+        for key in params['policy'].keys():
+            if 'corr_model' in key:
+                keys_to_delete.append(key)
+
+        # Delete the selected keys
+        for key in keys_to_delete:
+            del params['policy'][key]
 
         if env is not None:
             # Wrap first if needed
